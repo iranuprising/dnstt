@@ -8,16 +8,34 @@ package noise
 import (
 	"bufio"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
 	"strings"
+	"sync/atomic"
 
 	"github.com/flynn/noise"
 	"golang.org/x/crypto/curve25519"
 )
+
+var (
+	GlobalBytesIn  atomic.Uint64
+	GlobalBytesOut atomic.Uint64
+)
+
+// GetStats returns current global traffic statistics.
+func GetStats() (uint64, uint64) {
+	return GlobalBytesIn.Load(), GlobalBytesOut.Load()
+}
+
+// ResetStats clears the global traffic statistics.
+func ResetStats() {
+	GlobalBytesIn.Store(0)
+	GlobalBytesOut.Store(0)
+}
 
 // The length of public and private keys as returned by GeneratePrivkey.
 const KeyLen = 32
@@ -100,7 +118,11 @@ func newSocket(rwc io.ReadWriteCloser, recvCipher, sendCipher *noise.CipherState
 
 // Read reads decrypted data from the wrapped io.Reader.
 func (s *socket) Read(p []byte) (int, error) {
-	return s.recvPipe.Read(p)
+	n, err := s.recvPipe.Read(p)
+	if n > 0 {
+		GlobalBytesIn.Add(uint64(n))
+	}
+	return n, err
 }
 
 // Write writes encrypted data from the wrapped io.Writer.
@@ -119,12 +141,12 @@ func (s *socket) Write(p []byte) (int, error) {
 		if err != nil {
 			return total, err
 		}
+		GlobalBytesOut.Add(uint64(n))
 		total += n
 		p = p[n:]
 	}
 	return total, nil
 }
-
 // newConfig instantiates configuration settings that are common to clients and
 // servers.
 func newConfig() noise.Config {
@@ -261,13 +283,18 @@ func WriteKey(w io.Writer, key []byte) error {
 	return err
 }
 
-// DecodeKey decodes a hex-encoded private or public key.
+// DecodeKey decodes a private or public key from hex or base64.
 func DecodeKey(s string) ([]byte, error) {
-	key, err := hex.DecodeString(s)
-	if err == nil && len(key) != KeyLen {
-		err = fmt.Errorf("length is %d, expected %d", len(key), KeyLen)
+	s = strings.TrimSpace(s)
+	// Try hex first
+	if key, err := hex.DecodeString(s); err == nil && len(key) > 0 {
+		return key, nil
 	}
-	return key, err
+	// Try base64
+	if key, err := base64.StdEncoding.DecodeString(s); err == nil && len(key) > 0 {
+		return key, nil
+	}
+	return nil, fmt.Errorf("invalid key format: must be hex or base64")
 }
 
 // EncodeKey encodes a hex-encoded private or public key.
