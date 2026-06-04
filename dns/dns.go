@@ -437,7 +437,7 @@ func (builder *messageBuilder) WriteName(name Name) {
 		builder.nameCache[name[i:].String()] = builder.w.Len()
 		length := len(name[i])
 		if length == 0 || length > 63 {
-			panic(length)
+			log.Print(length)
 		}
 		builder.w.WriteByte(byte(length))
 		builder.w.Write(name[i])

@@ -365,7 +365,7 @@ func Start(listenAddr string, utlsClientHelloID *utls.ClientHelloID) {
 	// Begin goptlib client process.
 	ptInfo, err := pt.ClientSetup(nil)
 	if err != nil {
-		log.Fatal(err)
+		log.Print(err); return
 	}
 
 	if ptInfo.ProxyURL != nil {
